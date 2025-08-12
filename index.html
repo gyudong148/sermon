@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>설교 검색 프로그램</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!-- 고운바탕 글꼴 추가 -->
+    <link href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&display=swap" rel="stylesheet">
+    <!-- 워드 파일(.docx) 파싱을 위한 mammoth.js 라이브러리 추가 -->
+    <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
+    <style>
+        body {
+            font-family: 'Gowun Batang', serif;
+        }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+        .sermon-card h3, .search-result-item { cursor: pointer; }
+        mark { background-color: #fde047; color: #1f2937; padding: 0 2px; border-radius: 3px; }
+        .modal-content { max-height: 80vh; }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <!-- 메인 앱 컨테이너 -->
+    <div id="app-container">
+        <div class="container mx-auto p-4 md:p-8 max-w-5xl">
+            <header class="relative text-center mb-8">
+                <h1 class="text-4xl font-bold text-gray-900">설교 검색 프로그램</h1>
+                <p class="text-gray-600 mt-2">모든 설교를 저장하고, 필요할 때 쉽게 찾아보세요.</p>
+                <button id="add-sermon-button" class="absolute top-0 right-0 bg-indigo-600 text-white font-bold py-2 px-4 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors duration-300">
+                    새 설교 추가하기
+                </button>
+            </header>
+
+            <div class="bg-white p-6 rounded-xl shadow-lg">
+                <h2 class="text-2xl font-bold mb-6 border-b pb-3">설교 검색</h2>
+                <div class="flex space-x-2 mb-4">
+                    <input type="text" id="search-input" placeholder="제목, 주제, 본문 내용, 성경 구절로 검색" class="flex-grow block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                    <button id="search-button" class="bg-gray-800 text-white font-bold py-2 px-4 rounded-md hover:bg-gray-900 transition-colors duration-300">검색</button>
+                    <button id="view-all-button" class="bg-gray-200 text-gray-700 font-bold py-2 px-4 rounded-md hover:bg-gray-300 transition-colors duration-300">전체 보기</button>
+                </div>
+                <div id="sermon-list" class="space-y-4 h-[65vh] overflow-y-auto pr-2">
+                    <div id="loading-indicator" class="text-center p-8">
+                        <p class="text-gray-500">설교를 불러오는 중입니다...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 설교 추가 모달 -->
+    <div id="add-sermon-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-40">
+        <div class="relative top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 p-5 border w-full max-w-2xl shadow-lg rounded-md bg-white">
+            <div class="modal-content overflow-y-auto p-1 pr-4">
+                <div class="flex justify-between items-center border-b pb-3 mb-5">
+                    <h3 class="text-2xl font-bold">새 설교 추가하기</h3>
+                    <button id="close-modal-button" class="text-2xl font-bold text-gray-500 hover:text-gray-800">&times;</button>
+                </div>
+                <form id="sermon-form" class="space-y-4">
+                    <div><label for="date" class="block text-sm font-medium text-gray-700">날짜</label><input type="date" id="date" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm" required></div>
+                    <div><label for="title" class="block text-sm font-medium text-gray-700">제목</label><input type="text" id="title" placeholder="설교 제목을 입력하세요" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm" required></div>
+                    <div><label for="audience" class="block text-sm font-medium text-gray-700">대상</label><input type="text" id="audience" placeholder="예: 주일예배, 수요예배, 청년부" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm"></div>
+                    <div><label for="topic" class="block text-sm font-medium text-gray-700">주제</label><input type="text" id="topic" placeholder="예: 믿음, 소망, 사랑, 구원" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm"></div>
+                    <div>
+                        <div class="flex justify-between items-center"><label for="text" class="block text-sm font-medium text-gray-700">설교 본문</label><button type="button" id="load-word-button" class="text-sm bg-gray-200 text-gray-800 font-semibold py-1 px-3 rounded-md hover:bg-gray-300">워드 파일에서 불러오기</button></div>
+                        <input type="file" id="word-file-input" class="hidden" accept=".docx"><textarea id="text" rows="10" placeholder="설교 원고를 여기에 붙여넣거나 워드 파일을 불러오세요" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm" required></textarea>
+                    </div>
+                    <button type="submit" class="w-full bg-indigo-600 text-white font-bold py-3 px-4 rounded-md hover:bg-indigo-700">설교 저장하기</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 삭제 확인 모달 -->
+    <div id="delete-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div class="mt-3 text-center">
+                <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100"><svg class="h-6 w-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg></div>
+                <h3 class="text-lg leading-6 font-medium text-gray-900 mt-2">설교 삭제</h3>
+                <div class="mt-2 px-7 py-3"><p class="text-sm text-gray-500">정말로 이 설교를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.</p></div>
+                <div class="items-center px-4 py-3"><button id="confirm-delete-button" class="px-4 py-2 bg-red-500 text-white text-base font-medium rounded-md w-24 mr-2 hover:bg-red-700">삭제</button><button id="cancel-delete-button" class="px-4 py-2 bg-gray-200 text-gray-900 text-base font-medium rounded-md w-24 hover:bg-gray-300">취소</button></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 문맥 보기 모달 -->
+    <div id="context-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">
+        <div class="relative top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 p-6 border w-full max-w-3xl shadow-lg rounded-md bg-white">
+            <div class="flex justify-between items-center border-b pb-3 mb-5"><h3 class="text-2xl font-bold">문맥 보기</h3><button id="close-context-modal-button" class="text-2xl font-bold text-gray-500 hover:text-gray-800">&times;</button></div>
+            <div class="space-y-4 text-lg leading-relaxed max-h-[60vh] overflow-y-auto pr-4">
+                <div id="context-prev" class="text-gray-500"></div>
+                <div id="context-current" class="font-semibold bg-yellow-100 p-3 rounded-md"></div>
+                <div id="context-next" class="text-gray-500"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 맞춤 알림 모달 -->
+    <div id="alert-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div class="mt-3 text-center">
+                <div id="alert-icon-container" class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100">
+                    <!-- 아이콘은 JS에서 동적으로 설정됩니다 -->
+                </div>
+                <h3 id="alert-title" class="text-lg leading-6 font-medium text-gray-900 mt-2"></h3>
+                <div class="mt-2 px-7 py-3">
+                    <p id="alert-message" class="text-sm text-gray-500"></p>
+                </div>
+                <div class="items-center px-4 py-3">
+                    <button id="close-alert-button" class="px-4 py-2 bg-indigo-500 text-white text-base font-medium rounded-md w-24 hover:bg-indigo-700">확인</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 스크립트 시작 -->
+    <script type="module">
+        // Firebase 모듈 임포트
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, getDocs, doc, deleteDoc, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- DOM 요소 ---
+        const allModals = document.querySelectorAll('.fixed.inset-0');
+        const sermonForm = document.getElementById('sermon-form');
+        const sermonList = document.getElementById('sermon-list');
+        const searchInput = document.getElementById('search-input');
+        const searchButton = document.getElementById('search-button');
+        const viewAllButton = document.getElementById('view-all-button');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const loadWordButton = document.getElementById('load-word-button');
+        const wordFileInput = document.getElementById('word-file-input');
+        const sermonTextArea = document.getElementById('text');
+        
+        // --- 전역 변수 ---
+        let userId = null;
+        let sermonsCache = [];
+        let sermonIdToDelete = null;
+        let db, auth;
+
+        // --- 핵심 초기화 로직 ---
+        async function initialize() {
+            // 이 환경에서는 __firebase_config와 __app_id가 자동으로 제공됩니다.
+            // 이를 사용하여 Firebase를 초기화합니다.
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+            try {
+                if (typeof __firebase_config === 'undefined') {
+                    throw new Error("Firebase 설정 정보를 찾을 수 없습니다.");
+                }
+                const firebaseConfig = JSON.parse(__firebase_config);
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                // 인증 상태 리스너 설정
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        await fetchAndRenderSermons();
+                    } else {
+                        userId = null;
+                        sermonList.innerHTML = '<p class="text-gray-500 text-center">인증 정보가 없습니다. 다시 로그인해주세요.</p>';
+                        loadingIndicator.style.display = 'none';
+                    }
+                });
+
+                // 로그인 시도
+                await signIn();
+
+            } catch (error) {
+                console.error("Firebase 초기화 또는 로그인 실패:", error);
+                sermonList.innerHTML = `<p class="text-red-500 text-center p-4">초기화에 실패했습니다. Firebase 설정이 올바른지 확인해주세요.<br>${error.message}</p>`;
+                loadingIndicator.style.display = 'none';
+            }
+        }
+
+        async function signIn() {
+            try {
+                // 이 환경에서는 __initial_auth_token이 제공될 수 있습니다.
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    // 토큰이 없으면 익명으로 로그인합니다.
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("로그인 실패:", error);
+                 if (error.code === 'auth/operation-not-allowed') {
+                    const errorMessage = "Firebase 인증 오류: '익명' 로그인이 활성화되지 않았습니다.\n\nFirebase 콘솔 > Authentication > Sign-in method 탭에서 '익명'을 활성화해주세요.";
+                    showAlert(errorMessage, false);
+                    sermonList.innerHTML = `<p class="text-red-500 text-center p-4">${errorMessage.replace(/\n/g, '<br>')}</p>`;
+                } else {
+                    showAlert("데이터베이스 인증에 실패했습니다. 인터넷 연결을 확인해주세요.", false);
+                }
+            }
+        }
+        
+        // --- 데이터 처리 함수 ---
+        async function fetchAndRenderSermons() {
+            if (!userId || !db) return;
+            loadingIndicator.style.display = 'block';
+            sermonList.innerHTML = '';
+            try {
+                const sermonsCollectionRef = collection(db, `artifacts/${__app_id}/users/${userId}/sermons`);
+                // Firestore에서 `orderBy`를 사용하려면 해당 인덱스를 생성해야 합니다.
+                // 인덱스 생성 없이 안정적인 정렬을 위해, 데이터를 모두 가져온 후 클라이언트에서 정렬합니다.
+                const querySnapshot = await getDocs(query(sermonsCollectionRef));
+                
+                sermonsCache = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                
+                // 날짜(date)를 기준으로 내림차순 정렬 (최신순)
+                sermonsCache.sort((a, b) => {
+                    if (!a.date || !b.date) return 0;
+                    return b.date.localeCompare(a.date);
+                });
+
+                renderSermons(sermonsCache);
+            } catch (error) {
+                console.error("설교를 불러오는 중 오류 발생:", error);
+                sermonList.innerHTML = '<p class="text-red-500 text-center">설교를 불러오는 데 실패했습니다. Firestore 데이터베이스 규칙을 확인해주세요.</p>';
+            } finally {
+                loadingIndicator.style.display = 'none';
+            }
+        }
+        
+        async function saveSermon() {
+             if (!userId || !db) {
+                showAlert("데이터베이스에 연결되지 않았습니다.", false);
+                return;
+            }
+            const sermonData = {
+                date: document.getElementById('date').value,
+                title: document.getElementById('title').value,
+                audience: document.getElementById('audience').value,
+                topic: document.getElementById('topic').value,
+                text: sermonTextArea.value,
+                createdAt: serverTimestamp()
+            };
+            try {
+                const sermonsCollectionRef = collection(db, `artifacts/${__app_id}/users/${userId}/sermons`);
+                await addDoc(sermonsCollectionRef, sermonData);
+                sermonForm.reset();
+                sermonTextArea.value = '';
+                document.getElementById('date').valueAsDate = new Date();
+                document.getElementById('add-sermon-modal').classList.add('hidden');
+                showAlert("설교가 성공적으로 저장되었습니다.");
+                await fetchAndRenderSermons();
+            } catch (error) {
+                console.error("설교 저장 중 오류 발생: ", error);
+                showAlert("설교 저장에 실패했습니다.", false);
+            }
+        }
+
+        async function deleteSermon() {
+            if (!sermonIdToDelete || !userId || !db) return;
+            try {
+                const sermonDocRef = doc(db, `artifacts/${__app_id}/users/${userId}/sermons`, sermonIdToDelete);
+                await deleteDoc(sermonDocRef);
+                document.getElementById('delete-modal').classList.add('hidden');
+                showAlert('설교가 삭제되었습니다.');
+                await fetchAndRenderSermons();
+            } catch (error) {
+                console.error("설교 삭제 중 오류 발생: ", error);
+                showAlert('설교 삭제에 실패했습니다.', false);
+            } finally {
+                sermonIdToDelete = null;
+            }
+        }
+
+        // --- 렌더링 함수 ---
+        function renderSermons(sermons, searchTerm = '') {
+            sermonList.innerHTML = '';
+            const isSearching = !!searchTerm;
+            if (sermons.length === 0) {
+                sermonList.innerHTML = `<p class="text-gray-500 text-center p-8">${isSearching ? `'${searchTerm}'에 대한 검색 결과가 없습니다.` : '저장된 설교가 없습니다. 우측 상단 버튼으로 새 설교를 추가해보세요.'}</p>`;
+                return;
+            }
+            if (isSearching) renderSearchResults(sermons, searchTerm);
+            else renderFullSermons(sermons);
+        }
+
+        function renderFullSermons(sermons) {
+            sermons.forEach(sermon => {
+                const card = document.createElement('div');
+                card.className = 'sermon-card bg-white p-5 rounded-lg shadow border border-gray-200 transition-shadow hover:shadow-md';
+                card.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <div class="flex-grow"><h3 class="text-2xl font-bold text-indigo-700">${sermon.title}</h3><p class="text-sm text-gray-500 mt-1"><span>${sermon.date}</span> | <span>대상: ${sermon.audience || '미지정'}</span> | <span>주제: ${sermon.topic || '미지정'}</span></p></div>
+                        <button data-id="${sermon.id}" class="delete-button text-red-500 hover:text-red-700 font-semibold ml-4 flex-shrink-0">삭제</button>
+                    </div>
+                    <div class="sermon-content mt-4 pt-4 border-t border-gray-200 text-gray-800 whitespace-pre-wrap hidden">${sermon.text.replace(/\n/g, '<br>')}</div>`;
+                sermonList.appendChild(card);
+            });
+        }
+
+        function renderSearchResults(sermons, searchTerm) {
+            let resultsFound = false;
+            const highlightRegex = new RegExp(`(${escapeRegExp(searchTerm)})`, 'gi');
+            sermons.forEach(sermon => {
+                const sentences = sermon.text.match(/[^.!?]+[.!?\n]+/g) || [];
+                sentences.forEach((sentence, index) => {
+                    if (sentence.toLowerCase().includes(searchTerm.toLowerCase())) {
+                        resultsFound = true;
+                        const resultItem = document.createElement('div');
+                        resultItem.className = 'search-result-item bg-gray-50 p-4 rounded-lg shadow-sm border border-gray-200 hover:bg-gray-100';
+                        resultItem.dataset.sermonId = sermon.id;
+                        resultItem.dataset.sentenceIndex = index;
+                        resultItem.innerHTML = `<p class="text-sm text-gray-600 font-semibold">${sermon.title} (${sermon.date})</p><p class="mt-2 text-gray-800">${sentence.replace(highlightRegex, `<mark>$1</mark>`)}</p>`;
+                        sermonList.appendChild(resultItem);
+                    }
+                });
+            });
+            if (!resultsFound) sermonList.innerHTML = `<p class="text-gray-500 text-center p-8">'${searchTerm}'에 대한 검색 결과가 없습니다.</p>`;
+        }
+        
+        // --- 파일 처리 및 유틸리티 함수 ---
+        function handleWordFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const fileName = file.name;
+            const parsedDate = parseDateFromFileName(fileName);
+            if (parsedDate) document.getElementById('date').value = parsedDate;
+            const parsedTitle = parseTitleFromFileName(fileName);
+            if (parsedTitle) document.getElementById('title').value = parsedTitle;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                mammoth.extractRawText({ arrayBuffer: e.target.result })
+                    .then(result => sermonTextArea.value = result.value.trim())
+                    .catch(err => {
+                        console.error("Mammoth.js error: ", err);
+                        showAlert("워드 파일을 읽는 중 오류가 발생했습니다.", false);
+                    });
+            };
+            reader.readAsArrayBuffer(file);
+            event.target.value = '';
+        }
+        
+        function parseDateFromFileName(fileName) {
+            let match = fileName.match(/^(\d{4}-\d{2}-\d{2})/);
+            if (match && !isNaN(new Date(match[1]).getTime())) return match[1];
+            match = fileName.match(/^(\d{4})(\d{2})(\d{2})/);
+            if (match && !isNaN(new Date(`${match[1]}-${match[2]}-${match[3]}`).getTime())) return `${match[1]}-${match[2]}-${match[3]}`;
+            match = fileName.match(/^(\d{2})(\d{2})(\d{2})/);
+            if (match) {
+                let year = parseInt(match[1], 10) + (parseInt(match[1], 10) > 50 ? 1900 : 2000);
+                if (!isNaN(new Date(`${year}-${match[2]}-${match[3]}`).getTime())) return `${year}-${match[2]}-${match[3]}`;
+            }
+            return null;
+        }
+
+        function parseTitleFromFileName(fileName) {
+            let title = fileName.replace(/\.docx$/i, '');
+            title = title.replace(/^\d{4}-\d{2}-\d{2}[\s_-]?/, '');
+            title = title.replace(/^\d{8}[\s_-]?/, '');
+            title = title.replace(/^\d{6}[\s_-]?/, '');
+            return title.replace(/[_-]/g, ' ').trim();
+        }
+
+        function escapeRegExp(string) { return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+        
+        function handleSearch() {
+            const searchTerm = searchInput.value.trim();
+            const filteredSermons = searchTerm ? sermonsCache.filter(s => {
+                const lower = searchTerm.toLowerCase();
+                return (s.title.toLowerCase().includes(lower) || (s.topic && s.topic.toLowerCase().includes(lower)) || s.text.toLowerCase().includes(lower));
+            }) : sermonsCache;
+            renderSermons(filteredSermons, searchTerm);
+        }
+
+        function showAlert(message, isSuccess = true) {
+            const modal = document.getElementById('alert-modal');
+            const title = document.getElementById('alert-title');
+            const msg = document.getElementById('alert-message');
+            const iconContainer = document.getElementById('alert-icon-container');
+            const button = document.getElementById('close-alert-button');
+
+            msg.textContent = message;
+            if (isSuccess) {
+                title.textContent = '성공';
+                iconContainer.innerHTML = `<svg class="h-6 w-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`;
+                iconContainer.className = 'mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100';
+                button.className = 'px-4 py-2 bg-indigo-500 text-white text-base font-medium rounded-md w-24 hover:bg-indigo-700';
+            } else {
+                title.textContent = '오류';
+                iconContainer.innerHTML = `<svg class="h-6 w-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>`;
+                iconContainer.className = 'mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100';
+                button.className = 'px-4 py-2 bg-red-500 text-white text-base font-medium rounded-md w-24 hover:bg-red-700';
+            }
+            modal.classList.remove('hidden');
+        }
+
+        // --- 이벤트 리스너 ---
+        document.addEventListener('DOMContentLoaded', initialize);
+        sermonForm.addEventListener('submit', (e) => { e.preventDefault(); saveSermon(); });
+        searchButton.addEventListener('click', handleSearch);
+        searchInput.addEventListener('keyup', (e) => { if (e.key === 'Enter') handleSearch(); });
+        viewAllButton.addEventListener('click', () => { searchInput.value = ''; renderSermons(sermonsCache); });
+        loadWordButton.addEventListener('click', () => wordFileInput.click());
+        wordFileInput.addEventListener('change', handleWordFile);
+        document.getElementById('add-sermon-button').addEventListener('click', () => document.getElementById('add-sermon-modal').classList.remove('hidden'));
+        document.getElementById('confirm-delete-button').addEventListener('click', deleteSermon);
+        document.getElementById('close-alert-button').addEventListener('click', () => document.getElementById('alert-modal').classList.add('hidden'));
+
+        sermonList.addEventListener('click', (e) => {
+            const sermonCardHeader = e.target.closest('.sermon-card h3');
+            const resultItem = e.target.closest('.search-result-item');
+            const deleteButton = e.target.closest('.delete-button');
+
+            if (sermonCardHeader) {
+                sermonCardHeader.closest('.sermon-card').querySelector('.sermon-content').classList.toggle('hidden');
+            } else if (resultItem) {
+                const { sermonId, sentenceIndex } = resultItem.dataset;
+                const sermon = sermonsCache.find(s => s.id === sermonId);
+                if (!sermon) return;
+                const sentences = sermon.text.match(/[^.!?]+[.!?\n]+/g) || [];
+                const index = parseInt(sentenceIndex, 10);
+                const prevSentences = sentences.slice(Math.max(0, index - 5), index);
+                const nextSentences = sentences.slice(index + 1, index + 6);
+                const highlightRegex = new RegExp(`(${escapeRegExp(searchInput.value.trim())})`, 'gi');
+
+                document.getElementById('context-prev').innerHTML = prevSentences.map(s => `<p>${s.trim()}</p>`).join('');
+                document.getElementById('context-current').innerHTML = `<p>${sentences[index].trim().replace(highlightRegex, `<mark>$1</mark>`)}</p>`;
+                document.getElementById('context-next').innerHTML = nextSentences.map(s => `<p>${s.trim()}</p>`).join('');
+                document.getElementById('context-modal').classList.remove('hidden');
+            } else if (deleteButton) {
+                sermonIdToDelete = deleteButton.dataset.id;
+                document.getElementById('delete-modal').classList.remove('hidden');
+            }
+        });
+
+        allModals.forEach(modal => {
+            const closeButton = modal.querySelector('button[id^="close-"], button[id^="cancel-"]');
+            if(closeButton) closeButton.addEventListener('click', () => modal.classList.add('hidden'));
+            modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.add('hidden'); });
+        });
+    </script>
+</body>
+</html>
